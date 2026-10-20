@@ -18,13 +18,12 @@
   `A30AB9145DA62893CD1C2A3CCEE7D05764110908FF4819DE0D7E9E8AA222055E`
 - libxposed API 102
 - 模块 `versionCode 4`，`versionName 1.0.3`
-- 安装包 `dist/ChatGPTNetworkBanner-1.0.3.apk`
 - 最终 APK SHA-256
   `59DE70B08860FA0DE9A3634834E81E320C1539C18E45C043B8C6F4F5234C62CC`
 
-调试触发用的 `-debug` APK 由本地构建脚本按需生成，不随 Release 发布；它只在
-ChatGPT 进程内注册一个 `Settings.Global` 观察器，用于人工触发 Banner。
-正式包不包含该观察器和调试键。正常安装请使用不带 `-debug` 的 APK。
+正式 APK 从 GitHub Release 的 `v1.0.3` 页面下载；本地工作副本不保存 APK。
+调试触发用的 `-debug` APK 只在需要时由构建脚本生成，不随 Release 发布，
+完成后也不保留。
 
 APK 中的混淆类名只匹配上述目标版本。ChatGPT 更新后，如果 Hook 定位失败，
 模块会保留原行为，不会猜测替代类名。
@@ -180,7 +179,8 @@ adb shell settings delete global chatgpt_banner_debug_trigger
 
 ## 安装
 
-1. 安装 `dist/ChatGPTNetworkBanner-1.0.3.apk`。
+1. 从 GitHub Release `v1.0.3` 下载并安装
+   `ChatGPTNetworkBanner-1.0.3.apk`。
 2. 在 LSPosed 中启用 `ChatGPT Network Banner`。
 3. Scope 只勾选 `com.openai.chatgpt`。
 4. 强制停止并重新启动 ChatGPT。
@@ -202,9 +202,9 @@ Set-Location E:\Code\auto\chatgpt-network-banner
 ```
 
 脚本使用 Android 35 platform、build-tools 35.0.0、libxposed API 102 AAR
-和项目内本地签名密钥，执行 aapt2、javac、D8、zipalign、apksigner，并在
-`dist` 生成可安装 APK。SDK 路径由脚本按项目相对路径解析，签名密钥仅在
-本地保留，不进入 Git。
+和临时本地签名密钥，执行 aapt2、javac、D8、zipalign、apksigner，并在
+`dist` 生成可安装 APK。SDK 路径由脚本按项目相对路径解析；构建缓存、临时
+签名密钥和生成的 APK 在发布后删除，不进入 Git。
 
 ## 静态验证
 

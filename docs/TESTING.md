@@ -24,6 +24,9 @@ $adb = 'D:\develop\platform-tools-latest-windows\platform-tools\adb.exe'
 & $adb -s f5b8b7e shell dumpsys package com.kfjie.chatgptnetworkbanner
 ```
 
+本机清理时已删除本地 APK、临时签名密钥和测试安装；重新测试需要先从
+GitHub Release 下载正式包，或重新运行构建脚本生成。
+
 在 LSPosed 中只勾选 `com.openai.chatgpt`，然后强制停止并重新启动 ChatGPT。
 
 ## Banner 调试触发
