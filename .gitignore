@@ -1,0 +1,12 @@
+build/
+build-local/
+local-gradle/
+.gradle/
+*/.gradle/
+dist/
+signing/
+libs/*.jar
+*.idsig
+*.keystore
+*.jks
+*.apk

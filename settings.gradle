@@ -1,0 +1,24 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+gradle.beforeProject { project ->
+    project.layout.buildDirectory.set(
+        new File("${rootDir}/build/local-gradle/${project.path.replace(':', '_')}")
+    )
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "ChatGPTNetworkBanner"
+include(":app")
