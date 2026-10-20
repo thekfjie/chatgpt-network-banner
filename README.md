@@ -22,10 +22,9 @@
 - 最终 APK SHA-256
   `59DE70B08860FA0DE9A3634834E81E320C1539C18E45C043B8C6F4F5234C62CC`
 
-`dist/ChatGPTNetworkBanner-1.0.3-debug.apk` 是仅用于调试触发的辅助包，SHA-256
-`13A4F5C2240B8E175F041FB3D6D915B9BCCAB6D1417F7B4BB5E5BBB20A848FDB`。
-调试包只在 ChatGPT 进程内注册一个 `Settings.Global` 观察器，用于人工触发
-Banner；正式包不包含该观察器和调试键。正常安装请使用不带 `-debug` 的 APK。
+调试触发用的 `-debug` APK 由本地构建脚本按需生成，不随 Release 发布；它只在
+ChatGPT 进程内注册一个 `Settings.Global` 观察器，用于人工触发 Banner。
+正式包不包含该观察器和调试键。正常安装请使用不带 `-debug` 的 APK。
 
 APK 中的混淆类名只匹配上述目标版本。ChatGPT 更新后，如果 Hook 定位失败，
 模块会保留原行为，不会猜测替代类名。

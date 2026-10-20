@@ -23,11 +23,9 @@ Get-FileHash .\dist\ChatGPTNetworkBanner-1.0.3.apk -Algorithm SHA256
 - 正式包：`dist/ChatGPTNetworkBanner-1.0.3.apk`
 - SHA-256:
   `59DE70B08860FA0DE9A3634834E81E320C1539C18E45C043B8C6F4F5234C62CC`
-- 调试包：`dist/ChatGPTNetworkBanner-1.0.3-debug.apk`
-- SHA-256:
-  `13A4F5C2240B8E175F041FB3D6D915B9BCCAB6D1417F7B4BB5E5BBB20A848FDB`
 
-二进制通过 GitHub Release 发布，不直接提交到 Git 历史。
+正式二进制通过 GitHub Release 发布，不直接提交到 Git 历史。调试触发包只在
+本地按需构建，不随 Release 发布。
 
 ## 安装与卸载
 
