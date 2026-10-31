@@ -1,230 +1,102 @@
 # ChatGPT Network Banner
 
-一个只针对 ChatGPT Android 指定 SSL“网络配置问题”错误页的 LSPosed
-模块。模块只改变该页面的 Compose 根 UI 渲染，不改变网络检测、SSL/TLS 校验、
-请求、认证或聊天业务状态。
+一个只处理 ChatGPT Android 指定 SSL 证书错误页的 LSPosed 模块。它保留原版
+网络检测、证书校验、请求、认证和聊天状态，只把该页面的全屏 UI 替换为 Activity
+内的轻量提示。
 
-## 重要边界
+## 目标与构建
 
-这是针对特定 ChatGPT 版本的 UI 模块，不是通用网络修复工具。目标页面没有
-同会话聊天状态可复用时，模块不伪造状态，正确放行原版全屏页面；因此当前
-实现仍是 UI-only 候选方案，真实 SSL 错误下的完整聊天复用尚未完成真机验收。
+- ChatGPT `1.2026.293`，`versionCode 2629319`
+- 包名 `com.openai.chatgpt`
+- 设备：Redmi K70，Android 16 / HyperOS 3
+- LSPosed：2.2.1；libxposed API 102
+- 模块：`versionCode 5`，`versionName 1.1.0`
 
-## 目标与产物
+模块只声明 `com.openai.chatgpt` 作用域，不申请系统悬浮窗或其他权限。
 
-- ChatGPT `1.2026.279`，`versionCode 2627911`
-- 目标包名 `com.openai.chatgpt`
-- 目标 APK SHA-256
-  `A30AB9145DA62893CD1C2A3CCEE7D05764110908FF4819DE0D7E9E8AA222055E`
-- libxposed API 102
-- 模块 `versionCode 4`，`versionName 1.0.3`
-- 最终 APK SHA-256
-  `59DE70B08860FA0DE9A3634834E81E320C1539C18E45C043B8C6F4F5234C62CC`
+## 实际 Hook
 
-正式 APK 从 GitHub Release 的 `v1.0.3` 页面下载；本地工作副本不保存 APK。
-调试触发用的 `-debug` APK 只在需要时由构建脚本生成，不随 Release 发布，
-完成后也不保留。
+以下类名来自真实 APK 的 JADX 分析，不是猜测：
 
-APK 中的混淆类名只匹配上述目标版本。ChatGPT 更新后，如果 Hook 定位失败，
-模块会保留原行为，不会猜测替代类名。
+| 位置 | 签名 | 用途 |
+| --- | --- | --- |
+| `com.openai.chatgpt.MainActivity` | `onCreate(Bundle)` | 创建 DecorView 内的 Banner |
+| `p000.vqq0` | `a(a96, List): ksr0` | 仅对 `p000.xnv` 路由保留前一页场景 |
+| `p000.dlr` | `invoke(Object, Object, Object): Object` | 目标证书页内容返回 `Unit` |
+| `p000.w52` | `m56566g(Object): void` | 同步侧边栏打开/关闭状态 |
 
-## 页面与 Hook 结论
+Banner 通过菜单语义节点定位：左侧 `16dp`，菜单按钮下方约 `10dp`。进入侧边栏
+时立即隐藏，关闭侧边栏不恢复旧提醒；其他导航页面不显示。提醒可点击 `×`
+关闭，未点击时约 15 秒自动消失。
 
-目标文案和页面来自真实 APK 的 JADX 分析与资源核对：
+## 拦截原理
 
-- 标题资源 `f46` 为 `Network configuration issue`
-- SSL 提示资源 `f47`，用户截图显示为中文
-- 按钮资源 `f45` 为 `Learn more`
-- 页面语义名为 `UntrustedNetworkCertificateScreen`
+目标错误仍是原版导航目的地 `p000.xnv`，证书错误对象仍由 ChatGPT 原逻辑产生。
+模块只在导航“场景组合”（Compose navigation scene，不是系统调度软件 Scene）
+和该目的地的绘制入口做 UI 层处理：
 
-该页面不是 Activity 或 Dialog，而是 MainActivity 内 Jetpack Compose 的独立
-导航根状态 `a9p0`；聊天页根状态为 `p8p0`。这两个类位于 APK 的默认包。
-JADX 把它们显示为 `defpackage`，但运行时类名没有 `defpackage.` 前缀。
+1. 只当路由是 `Untrusted Network Certificate`、原场景是 `fpu0`
+   且导航元数据允许保留前一页时，构造前一页保留场景。
+2. 只在目的地内容入口识别到标准证书状态
+   `hle0(true, false, false, null)` 时返回 `Unit`，跳过全屏内容。
+3. 不改错误对象、SSL 判定、网络请求、代理、重试或聊天消息。
 
-错误来源链路为 `x7d0.a(...)` 检测到
-`SSLHandshakeException/CertificateException` 后，把 `f7d0.c` 写成
-`c7d0(a7d0)`；`u6p0.d(...)` 再把该状态映射成 `a9p0`。这条链路只更新
-证书提示状态；静态路径中没有在 `x7d0` 内重置 `var0.u` 的 `z8r0`
-AuthSession 根状态，但整个错误处理链的其他业务状态仍需动态确认。
+普通网络错误和其他错误页面继续走原版渲染。模块禁用或卸载后恢复原行为。
 
-模块共有两个 Hook：
+## 多版本策略
 
-### 1. `com.openai.chatgpt.MainActivity#onCreate(Bundle)`
+当前真正完成符号核对的目标是 `1.2026.293`。旧版 `1.2026.279` 的根渲染签名
+已知，但它没有同一套新版导航符号证据，因此不把它伪装成已验证候选。
 
-只在目标 MainActivity 创建后建立应用内 Banner Controller。Banner 挂到该
-Activity 的 DecorView，不使用系统悬浮窗，不增加权限、Service 或后台进程。
-
-### 2. `s511#f(z8r0, c9p0, ...)`
-
-实际签名为：
-
-```text
-(z8r0, c9p0, jap0, qd40, Function2, rdc0, bqt, Function2, s2n, int)
-```
-
-处理规则：
-
-- 普通聊天 `p8p0` 出现时，缓存这个 Compose 根状态，并关联
-  `z8r0.d` 的 AuthSession 标识。
-- 目标是 `a9p0` 且存在同一 AuthSession 的聊天状态时，只替换本次
-  `chain.proceed(...)` 的 Compose 根状态参数，仍保留原来的 `z8r0` 和
-  其他参数。
-- 不写回 `a9p0`、不修改原导航状态、不伪造网络正常、不拦截 SSL 结果。
-- 没有同会话聊天状态时，不创建 Banner，并严格放行原版 `a9p0` 渲染；最终
-  呈现尚未完成真机验证。这是当前 UI-only Hook 已知的限制，不能通过伪造
-  正常网络状态或改写业务状态来消除。
-- 同一持续异常只创建一次 Banner 事件；回到普通根状态后清理异常周期。
-
-## Banner
-
-- 左侧 `16dp`。优先按内容描述 `f40`（`Navigation menu`）定位真实菜单按钮，
-  放在按钮下方约 `10dp`；找不到该 View 时才回退到状态栏高度加 `56dp`。
-  Compose 语义节点是否暴露为普通 View，仍需真机确认。
-- 紧凑、内容自适应，圆角 `12dp`，带网络异常图标和 `×` 按钮。
-- 深色与浅色模式使用不同背景、边框和文字颜色。
-- 文案：`网络连接异常，请检查网络`。
-- 点击 `×` 立即关闭；未手动关闭时显示约 `15 秒` 后自动消失。
-- 没有常驻轮询、全局网络 Hook 或额外后台任务。
-- 侧边栏不参与显示判断；侧边栏打开期间 Banner 仍可以留在聊天页 Activity 内。
-  这是为了保持两个 Hook 的最小实现而接受的折中。
-- 进入设置、项目或其他非聊天根页面时隐藏。
-
-## 安全边界
-
-模块没有 Hook 或修改：
-
-- SSL/TLS 证书检查、`TrustManager`、Cronet 或 OkHttp 证书验证
-- 网络错误对象或网络恢复判定
-- API 请求、响应、代理和重试
-- 登录、认证、账号状态
-- 会话、消息、聊天数据和业务逻辑
-- 其他错误页面、Activity 导航或 Drawer 开关动画
-
-证书错误仍由 ChatGPT 原逻辑产生。模块仅在这个特定 Compose 根页面渲染时
-替换 UI 入参；安全检测和失败处理结果保持原样。
-
-## 验证状态与已知限制
-
-Redmi K70 / Android 16 上曾完成一次受限的调试验证：模块能注入目标进程，
-`s511`、`p8p0`、`a9p0` 能从目标 ClassLoader 加载，根渲染 Hook 能安装，
-调试触发器能收到设置变化。之后按用户要求卸载了测试模块并恢复了设备状态。
-
-这不等同于真实 SSL 页面验收。静态分析可以确认页面类型、Hook 签名和状态
-对象，但不能单独证明 Compose 替换根状态后一定完整复用聊天输入和交互。
-当前仍未完成：
-
-1. 目标 SSL 错误出现后不再覆盖整个聊天画面。
-2. 聊天输入区、历史消息和原聊天状态仍可正常使用。
-3. 侧边栏打开期间 Banner 不额外隐藏，这是已接受的妥协行为。
-4. 同一持续错误不会连续刷屏，`×` 和 15 秒自动消失均有效。
-5. 网络恢复后，原应用机制继续工作。
-6. 设置、项目及其他页面不受影响。
-7. 深色/浅色及系统 inset 下的位置和尺寸正确。
-8. 禁用模块后恢复原全屏页面。
-
-如果目标错误出现时没有同会话聊天状态，模块不会创建 Banner，仍走原版
-`a9p0` 渲染路径。静态代码明确会把 `a9p0` 映射到独立的导航根状态
-`dou.INSTANCE`，但该路径的最终屏幕效果尚未验证。在缺少有效 `p8p0` 时
-直接传 `null` 或凭空构造聊天状态，都会影响后续导航/业务参数，因此没有采用
-这两种做法。这个边界仍可能出现原全屏页，属于尚未闭环的 UI 限制，不应通过
-伪造网络正常或修改 SSL 判定来规避。
-
-即使存在缓存的 `p8p0`，也不能仅凭 `s511.f` 的参数替换声明聊天页一定完整
-恢复：原链路在证书状态下固定生成 `a9p0`，而后续 `nui0.a(...)` 仍按同一个
-根页面参数决定导航身份。模块没有改写这条业务状态链，所以当前只把它视为
-UI-only 候选实现；真实 SSL 错误下的可交互性和是否仍被全屏页覆盖必须由
-受限动态测试确认。
-
-## 主动调试触发
-
-先安装带 `-debug` 的 APK，在 LSPosed 中只勾选
-`com.openai.chatgpt`，然后强制停止并重新启动 ChatGPT。进入普通聊天页后
-执行：
-
-```powershell
-adb shell settings put global chatgpt_banner_debug_trigger 0
-adb shell settings put global chatgpt_banner_debug_trigger 1
-```
-
-把值从 `0` 改为 `1` 会触发一次 Banner。观察完成后可执行：
-
-```powershell
-adb shell settings put global chatgpt_banner_debug_trigger 0
-```
-
-正式测试结束后删除临时设置：
-
-```powershell
-adb shell settings delete global chatgpt_banner_debug_trigger
-```
-
-该触发只验证 Banner 的创建、定位、关闭、自动消失和样式，不会
-伪造 SSL 错误，也不能证明真实证书错误页面已经被替换。真实 Hook 仍需在受控
-证书错误网络下验证。
-
-### 建议的验证顺序
-
-1. 先验证 Banner 本身：触发一次后检查位置、文案、图标和主题；等待约 15 秒
-   确认自动消失。
-2. 再次触发后点击 `×`，确认立即关闭且不影响聊天输入。
-3. 再次触发后打开左侧历史侧边栏，确认 Banner 不额外隐藏；关闭侧边栏时
-   也不会重新计时或产生第二次提醒。
-4. 触发后进入设置或其他非聊天页面，确认 Banner 不显示。
-5. 最后在受控网络下让 ChatGPT 原逻辑实际产生目标 SSL 错误。只有这一步能
-   验证真实 `a9p0` 页面是否被替换，以及原聊天输入区和历史内容是否完整
-   可用。
-
-调试键的写入路径只存在于 `-debug` APK；正式包已在 dex 级检查中确认不包含
-该键、`ContentObserver` 或 `Settings.Global` 调用。
+代码已把版本绑定做成候选表。未来加入新版本时，应只追加经 JADX 或 DEX 实测
+通过的整组签名；绑定阶段会验证路由语义、场景构造器、目的地和抽屉 setter
+的完整形状。结构不匹配时完全不安装相关 Hook，原版 UI 保持不变。
 
 ## 安装
 
-1. 从 GitHub Release `v1.0.3` 下载并安装
-   `ChatGPTNetworkBanner-1.0.3.apk`。
-2. 在 LSPosed 中启用 `ChatGPT Network Banner`。
-3. Scope 只勾选 `com.openai.chatgpt`。
+1. 安装 `ChatGPTNetworkBanner-1.1.0.apk`。
+2. 在 LSPosed 中启用模块。
+3. 作用域只勾选 `com.openai.chatgpt`。
 4. 强制停止并重新启动 ChatGPT。
-5. 用原测试网络触发目标 SSL 页面并完成上面的动态检查。
 
-模块没有设置界面，也不需要额外授权。
+模块没有设置界面，不需要额外授权。
 
 ## 卸载
 
 在 LSPosed 中停用模块，再从系统应用管理卸载
-`com.kfjie.chatgptnetworkbanner`。ChatGPT 不需要重装；卸载或停用后恢复原版
-全屏错误页行为。
+`com.kfjie.chatgptnetworkbanner`。ChatGPT 不需要卸载；停用或卸载后恢复原版
+全屏错误页。
 
 ## 构建
 
 ```powershell
 Set-Location E:\Code\auto\chatgpt-network-banner
-.\build-local.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-local.ps1
 ```
 
-脚本使用 Android 35 platform、build-tools 35.0.0、libxposed API 102 AAR
-和临时本地签名密钥，执行 aapt2、javac、D8、zipalign、apksigner，并在
-`dist` 生成可安装 APK。SDK 路径由脚本按项目相对路径解析；构建缓存、临时
-签名密钥和生成的 APK 在发布后删除，不进入 Git。
+脚本默认使用 `D:\develop\android-sdk` 的 Android platform 35、build-tools 35，
+以及 `D:\Java17`；也可通过 `ANDROID_SDK_ROOT`、`ANDROID_HOME`、
+`ANDROID_BUILD_TOOLS`、`JAVA_HOME17` 或 `JAVA_HOME` 覆盖。构建执行
+aapt2、javac、D8、zipalign 和 apksigner，产物位于 `dist`。开发工具、目标
+APK、反编译结果和签名文件不进入 Git。
 
-## 静态验证
+## 验证状态
 
 已完成：
 
-- 目标 APK 资源、错误页状态和聊天根状态链路核对。
-- `s511.f` 的参数顺序和唯一业务调用点核对。
-- aapt2 链接、javac 编译、D8 单 dex 生成成功。
-- APK 包含 `classes.dex`、`META-INF/xposed/java_init.list`、
-  `module.prop` 和 `scope.list`。
-- scope 为 `com.openai.chatgpt`，无主动申请的权限。
-- 模块清单 `versionCode=4`、`versionName=1.0.3`。
-- apksigner 验证 APK Signature Scheme v3 通过。
-- 正式 DEX 不含 `chatgpt_banner_debug_trigger`；调试 DEX 才包含该键和
-  `Settings.Global` 观察器。
-- 正式和调试 DEX 都不再包含 `jhw`、`iy1` Drawer Hook 常量。
+- 真实 APK 的页面、路由、场景、目的地和抽屉符号核对；
+- `javac`、aapt2、D8、APK Signature Scheme v3 通过；
+- `versionCode=5`、`versionName=1.1.0`，无额外权限；
+- 正式 DEX 不含调试触发键或 `Settings.Global`；
+- ADB 安装与系统版本 `versionCode=5`、`versionName=1.1.0` 查询通过。
 
-未完成：真实 SSL 错误下的页面替换、Compose 复用稳定性、聊天输入/历史内容
-可交互性、HyperOS 3 实际视觉位置和页面切换的最终运行时表现。离线
-构建和基础注入成功都不等同于真实错误页验收通过。
+尚未完成：
 
-更详细的设计和测试记录见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、
+- LSPosed 作用域重新勾选后的运行日志确认；
+- 在受控 SSL 错误网络上验证目标页面被替换；
+- 真机聊天输入、历史、侧边栏动画和网络恢复的完整验收。
+
+离线构建、签名和安装通过不等于真实 SSL 页面验收通过。
+
+更详细的设计与测试记录见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、
 [docs/TESTING.md](docs/TESTING.md) 和 [docs/RELEASE.md](docs/RELEASE.md)。

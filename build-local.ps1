@@ -1,13 +1,56 @@
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$VersionName = "1.0.3"
-$SdkRoot = Join-Path (Split-Path -Parent $ProjectRoot) "_tools\android-sdk"
-$AndroidJar = Join-Path $SdkRoot "platforms\android-35\android.jar"
-$BuildTools = Join-Path $SdkRoot "build-tools\35.0.0"
+$VersionName = "1.1.0"
+$SdkCandidates = @(
+    $env:ANDROID_SDK_ROOT,
+    $env:ANDROID_HOME,
+    "D:\develop\android-sdk"
+) | Where-Object { $_ }
+$SdkRoot = $null
+foreach ($candidate in $SdkCandidates) {
+    if (Test-Path -LiteralPath (Join-Path $candidate "platforms\android-35\android.jar")) {
+        $SdkRoot = $candidate
+        break
+    }
+}
+if (-not $SdkRoot) {
+    throw "Android SDK platform 35 not found. Expected D:\develop\android-sdk or ANDROID_SDK_ROOT."
+}
+$AndroidJar = if (Test-Path -LiteralPath (Join-Path $SdkRoot "android-35\android.jar")) {
+    Join-Path $SdkRoot "android-35\android.jar"
+} else {
+    Join-Path $SdkRoot "platforms\android-35\android.jar"
+}
+$BuildToolCandidates = @($env:ANDROID_BUILD_TOOLS)
+$BuildToolCandidates += @(
+    Get-ChildItem -LiteralPath (Join-Path $SdkRoot "build-tools") -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        Select-Object -ExpandProperty FullName
+)
+$BuildTools = $null
+foreach ($candidate in $BuildToolCandidates) {
+    if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate "aapt2.exe"))) {
+        $BuildTools = $candidate
+        break
+    }
+}
+if (-not $BuildTools) {
+    throw "Android build-tools with aapt2.exe not found. Set ANDROID_BUILD_TOOLS."
+}
 $Aapt2 = Join-Path $BuildTools "aapt2.exe"
 $D8 = Join-Path $BuildTools "d8.bat"
-$JavaHome = "D:\Java17"
+$JavaHome = $null
+foreach ($candidate in @($env:JAVA_HOME17, $env:JAVA_HOME, "D:\Java17")) {
+    if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate "bin\javac.exe"))) {
+        $JavaHome = $candidate
+        break
+    }
+}
+if (-not $JavaHome) {
+    throw "JDK 17 not found. Set JAVA_HOME or JAVA_HOME17."
+}
 $Javac = Join-Path $JavaHome "bin\javac.exe"
 $Jar = Join-Path $JavaHome "bin\jar.exe"
 $ApkSigner = Join-Path $BuildTools "lib\apksigner.jar"
@@ -41,7 +84,8 @@ $ApiJar = Join-Path $Libs "api-102.0.0-classes.jar"
 if (-not (Test-Path -LiteralPath $ApiJar)) {
     $extract = Join-Path $Build "api-extract"
     New-Item -ItemType Directory -Force -Path $extract | Out-Null
-    Expand-Archive -LiteralPath $ApiAar -DestinationPath $extract -Force
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory($ApiAar, $extract)
     Copy-Item -LiteralPath (Join-Path $extract "classes.jar") -Destination $ApiJar
 }
 
@@ -110,7 +154,7 @@ Copy-Item -LiteralPath $ResourcesApk -Destination $Unsigned
 Copy-Item -LiteralPath (Join-Path $Dex "classes.dex") -Destination (Join-Path $Payload "classes.dex")
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "app\src\main\resources\META-INF") -Destination $Payload -Recurse -Force
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = [System.IO.Compression.ZipFile]::Open($Unsigned, [System.IO.Compression.ZipArchiveMode]::Update)
+$archive = [System.IO.Compression.ZipFile]::Open($Unsigned, 2)
 try {
     foreach ($file in Get-ChildItem -LiteralPath $Payload -Recurse -File) {
         $relative = $file.FullName.Substring($Payload.Length + 1).Replace("\", "/")
@@ -171,7 +215,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "aapt2 debug link failed"
 }
 $DebugSources = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "app\src\main\java") -Recurse -Filter "*.java")
-$DebugSources = @($DebugSources | Where-Object { $_.FullName -ne (Join-Path $ProjectRoot "app\src\main\java\com\kfjie\chatgptnetworkbanner\DebugTrigger.java") })
+$ReleaseDebugTrigger = [IO.Path]::GetFullPath(
+    (Join-Path $ProjectRoot "app\src\main\java\com\kfjie\chatgptnetworkbanner\DebugTrigger.java")
+)
+$DebugSources = @($DebugSources | Where-Object { $_.FullName -ne $ReleaseDebugTrigger })
 $DebugSources += @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "app\src\debug\java") -Recurse -Filter "*.java")
 $DebugSources += @(Get-ChildItem -LiteralPath $DebugGen -Recurse -Filter "*.java" -ErrorAction SilentlyContinue)
 $DebugJavaArgs = @("-encoding", "UTF-8", "--release", "8", "-classpath", "$AndroidJar;$ApiJar", "-d", $DebugClasses)
@@ -191,7 +238,7 @@ try {
 }
 $DebugUnsigned = Join-Path $Build "debug-unsigned.apk"
 Copy-Item -LiteralPath (Join-Path $Build "debug-resources.apk") -Destination $DebugUnsigned -Force
-$debugArchive = [System.IO.Compression.ZipFile]::Open($DebugUnsigned, [System.IO.Compression.ZipArchiveMode]::Update)
+$debugArchive = [System.IO.Compression.ZipFile]::Open($DebugUnsigned, 2)
 try {
     [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($debugArchive, (Join-Path $DebugDex "classes.dex"), "classes.dex") | Out-Null
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "app\src\main\resources\META-INF") -Recurse -File) {

@@ -1,39 +1,42 @@
 # Release
 
-## 版本
+## 1.1.0
 
-- `versionName`: `1.0.3`
-- `versionCode`: `4`
-- 目标 ChatGPT: `1.2026.279`
-- libxposed API: `102`
+- 目标 ChatGPT `1.2026.293`。
+- 将独立全屏证书错误目的地替换为 Activity 内轻提示。
+- 保留原版网络检测、SSL 校验和聊天业务逻辑。
+- 侧边栏打开立即隐藏，关闭不恢复旧提醒。
+- 15 秒自动消失、`×` 手动关闭、同一异常去重。
+- 正式 APK 不包含调试触发路径。
 
-## 构建
+## Build
 
 ```powershell
 Set-Location E:\Code\auto\chatgpt-network-banner
-.\build-local.ps1
-Get-FileHash .\dist\ChatGPTNetworkBanner-1.0.3.apk -Algorithm SHA256
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-local.ps1
 ```
 
-本地签名密钥只在构建或调试时临时生成，路径为 `signing/debug.keystore`，
-已被 `.gitignore` 排除。仓库和 Release 不包含密钥，发布完成后可删除。
+默认工具位置为 `D:\develop\android-sdk` 和 `D:\Java17`；可通过环境变量覆盖。
 
-## 产物
+产物：
 
-- 正式包：`dist/ChatGPTNetworkBanner-1.0.3.apk`
-- SHA-256:
-  `59DE70B08860FA0DE9A3634834E81E320C1539C18E45C043B8C6F4F5234C62CC`
+- `dist/ChatGPTNetworkBanner-1.1.0.apk`
+- `dist/ChatGPTNetworkBanner-1.1.0-debug.apk`
 
-正式二进制通过 GitHub Release 发布，不直接提交到 Git 历史。构建完成后，
-本地 `dist`、签名密钥和调试触发包都可以删除，不随 Release 发布。
+发布时只保留正式 APK；debug 包用于 UI 自测，不进入 Release。
 
-## 安装与卸载
+本次交付 APK：
 
-安装正式包并在 LSPosed 中只启用 `com.openai.chatgpt` Scope，随后强制停止
-并启动 ChatGPT。卸载模块或在 LSPosed 中停用后，无需重装 ChatGPT。
+- 文件：`dist/ChatGPTNetworkBanner-1.1.0.apk`
+- SHA-256：
+  `F6868EF38A25ABDAC879F6410894C491E955855A4281E8A6793714983578E7BC`
 
-## 发布检查
+## Verify
 
-- 源码和文档不含签名密钥、设备标识、截图或本地缓存。
-- Release 附正式 APK 和 SHA-256。
-- 说明目标版本和“无同会话聊天状态时回退原全屏页”的限制。
+```powershell
+Set-Location E:\Code\auto\chatgpt-network-banner
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\verify-build.ps1
+```
+
+脚本确认包名、版本、Scope 文件、无额外权限、APK v3 签名，以及正式 DEX
+不含调试键、`Settings.Global` 或 `ContentObserver`。脚本同时输出 SHA-256。

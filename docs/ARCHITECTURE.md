@@ -1,54 +1,77 @@
 # Architecture
 
-## 目标
+## Scope
 
-只在 ChatGPT `1.2026.279` 出现指定证书错误根状态 `a9p0` 时，尝试用同一
-认证会话中已缓存的聊天根状态 `p8p0` 渲染当前 Compose 根，并额外显示一个
-Activity 内 Banner。网络检测、SSL 校验和错误处理链保持原样。
+模块只处理 ChatGPT `1.2026.293` 中的独立 Compose 导航目的地
+`Untrusted Network Certificate`。它不改变网络失败结果，只改变该目的地的
+UI 组合和绘制。
 
-## 两个 Hook
+## Hooks
 
-1. `com.openai.chatgpt.MainActivity#onCreate(Bundle)`
-   - 在目标 Activity 创建后建立 Banner Controller。
-   - Banner 添加到 Activity DecorView，不使用系统悬浮窗。
-2. `s511#f(z8r0, c9p0, jap0, qd40, Function2, rdc0, bqt, Function2, s2n, int)`
-   - 观察根状态参数。
-   - `p8p0` 作为聊天状态缓存，并用 `z8r0.d` 关联认证会话。
-   - `a9p0` 且同会话聊天状态有效时，只替换该次渲染调用的根状态参数。
+### Activity creation
 
-没有 Drawer、网络、TLS、认证、请求或通用生命周期 Hook。
+`com.openai.chatgpt.MainActivity#onCreate(Bundle)` 在 Activity 创建后安装一次
+Banner Controller。Banner 添加到 Activity DecorView，不使用系统悬浮窗，也不
+创建 Service。
 
-## 状态与去重
+### Navigation scene
 
-- `lastChatState` / `lastChatSessionId` 保存可用于 UI 投影的聊天状态和会话标识。
-- `certificateCycle` 表示一次连续的证书错误周期。
-- `bannerShownForCycle` 保证同一周期只创建一次 Banner 事件。
-- 根状态回到普通聊天后清理周期，避免持续刷屏。
-- `BannerController` 的单个 `hideRunnable` 负责 15 秒自动关闭；点击 `×` 会
-  清除该回调并立即隐藏。
+`p000.vqq0.a(a96, List)` 负责选择 Compose 导航场景（这里的 scene 指
+Compose navigation scene，不是 Android 调度软件 Scene）。模块先让原逻辑执行，
+只在以下条件全部成立时替换场景：
 
-## 安全边界
+- 最新 entry 的路由是 `p000.xnv`；
+- 原场景实际是 `p000.fpu0`；
+- 该 entry 的元数据显式带有
+  `com.openai.feature.navigation.keepPreviousVisible=true`；
+- 候选构造器和字段已经通过完整形状校验。
 
-不修改以下内容：
+满足后构造 `p000.uqq0(latestEntry, previousEntries, vjr)`，让前一页继续参与
+组合。这里不改业务状态，也不伪造网络正常。
 
-- `TrustManager`、Cronet、OkHttp 或任何证书验证逻辑
-- SSL 异常产生、错误对象、重试和网络恢复判断
-- API 请求和响应、代理、认证、聊天消息与会话业务状态
-- 原版导航或 Drawer 动画
+### Destination content
 
-`a9p0` 仍由原业务链产生。模块只是在 UI 渲染入口尝试投影已经存在的
-`p8p0`，不凭空制造聊天状态，也不伪造网络正常。
+`p000.dlr.invoke(Object, Object, Object)` 在目的地是 `p000.xnv` 且参数状态为
+标准 SSL 证书状态 `hle0(true, false, false, null)` 时返回
+`p000.a011.f37a`（Kotlin Unit），跳过全屏内容。其他状态直接执行原方法。
 
-## 已知限制
+### Drawer state
 
-没有有效同会话 `p8p0` 时严格放行原版 `a9p0`，所以原全屏页仍可能出现。
-传 `null` 或构造假状态会影响后续导航和业务参数，因此没有采用。
+只 Hook `p000.w52.m56566g(Object)`，其内部持有当前 Drawer 状态。值为
+`Open` 时立即隐藏 Banner，`Closed` 时只解除状态，不重新显示已关闭的提醒。
+不 Hook 通用 `vbj0`，也不改动画、手势或导航状态。
 
-即使存在缓存 `p8p0`，也不能只凭参数替换证明聊天输入、历史消息和导航全部
-恢复；这必须依赖受控真实 SSL 错误动态验收。Banner 的侧边栏状态不参与
-显示判断，侧边栏打开期间可能继续存在，这是当前最小 Hook 方案的已知妥协。
+## Deduplication
 
-## 版本耦合
+每次真实证书入口生成一个递增 generation。Banner Controller 只对新的
+generation 调度一次显示；同一持续异常不会重复刷新。侧边栏打开时取消显示，
+关闭时不会复活旧事件。回到非目标页面后不再显示旧提醒。
 
-混淆类名和 `s511` 方法签名只对目标版本成立。ChatGPT 升级后如果定位失败，
-模块会放行原行为，不会猜测替代类名。
+## Candidate validation
+
+`TARGETS` 是版本候选表。每个候选必须验证：
+
+- 路由 singleton 的语义名为 `Untrusted Network Certificate`；
+- 场景 selector、`uqq0` 构造器、`fpu0` 构造器形状；
+- 目的地 invoke、目标字段和 Unit 字段；
+- entry 元数据字段；
+- Drawer setter 签名；
+- 标准证书状态字段类型。
+
+任一失败都不安装相关 UI Hook。不会根据模糊名称或旧版本类名猜测替代。
+
+## Safety boundary
+
+没有 Hook 或修改：
+
+- SSL/TLS、TrustManager、Cronet、OkHttp 或证书判定；
+- 网络错误对象、重试、代理、连接恢复；
+- API 请求或响应；
+- 登录、认证、账号、聊天消息或会话业务；
+- 系统悬浮窗、后台服务、Drawer 动画或通用 Activity 生命周期。
+
+## Known limits
+
+最新版本的整组混淆符号是目标构建特有的。其他版本在候选表中没有完整符号
+证据时会保持原版 UI，而不是盲目兼容。真实 SSL 错误下的交互和恢复仍需在
+受控网络中验收。

@@ -7,7 +7,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
@@ -25,45 +24,39 @@ import java.util.function.LongSupplier;
 
 final class BannerController {
     private static final long VISIBLE_MS = 15_000L;
-    private static final String MESSAGE = "\u7f51\u7edc\u8fde\u63a5\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc";
+    private static final String MESSAGE =
+            "\u7f51\u7edc\u8fde\u63a5\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc";
 
     private final Activity activity;
     private final LongSupplier generation;
-    private final BooleanSupplier chatPageVisible;
-    private Runnable onDestroyed;
+    private final BooleanSupplier canShow;
     private final Handler handler = new Handler(Looper.getMainLooper());
-
     private final Runnable hideRunnable = this::dismiss;
 
-    private ViewGroup decor;
-    private LinearLayout banner;
+    private FloatingBanner banner;
     private View decorView;
-    private NetworkIcon icon;
-    private TextView message;
-    private TextView close;
     private long shownGeneration = -1L;
     private long shownAt;
+    private long remainingMs = VISIBLE_MS;
     private boolean pending;
     private boolean dismissed;
-    private boolean attachedDark;
-    private final View.OnLayoutChangeListener layoutListener =
-            (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                if (banner != null && banner.getVisibility() == View.VISIBLE) {
-                    positionBanner();
-                }
-            };
-    private volatile boolean destroyed;
+    private boolean destroyed;
+    private Runnable onDestroyed;
 
     BannerController(
             Activity activity,
             LongSupplier generation,
-            BooleanSupplier chatPageVisible
+            BooleanSupplier canShow
     ) {
         this.activity = activity;
         this.generation = generation;
-        this.chatPageVisible = chatPageVisible;
+        this.canShow = canShow;
         decorView = activity.getWindow().getDecorView();
         decorView.post(this::attach);
+    }
+
+    void setOnDestroyed(Runnable callback) {
+        onDestroyed = callback;
     }
 
     void showForCertificateCycle(long currentGeneration) {
@@ -75,14 +68,38 @@ final class BannerController {
             shownAt = 0L;
             pending = true;
             dismissed = false;
-            attach();
             updateVisibility();
-            refreshWithMenuBounds();
         });
     }
 
-    void setOnDestroyed(Runnable callback) {
-        onDestroyed = callback;
+    void dismissForPageChange() {
+        handler.post(this::dismiss);
+    }
+
+    void showDebugPreview() {
+        handler.post(() -> {
+            if (destroyed) {
+                return;
+            }
+            pending = true;
+            dismissed = false;
+            shownAt = 0L;
+            updateVisibility();
+        });
+    }
+
+    void clearStaleBanner() {
+        handler.post(() -> {
+            if (destroyed) {
+                return;
+            }
+            pending = false;
+            dismissed = true;
+            handler.removeCallbacks(hideRunnable);
+            if (banner != null) {
+                banner.setVisibility(View.GONE);
+            }
+        });
     }
 
     void destroy() {
@@ -91,18 +108,11 @@ final class BannerController {
         }
         destroyed = true;
         handler.removeCallbacksAndMessages(null);
-        if (decorView != null) {
-            decorView.removeOnLayoutChangeListener(layoutListener);
-        }
         if (banner != null && banner.getParent() instanceof ViewGroup) {
             ((ViewGroup) banner.getParent()).removeView(banner);
         }
         banner = null;
-        icon = null;
-        message = null;
-        close = null;
         decorView = null;
-        decor = null;
         Runnable callback = onDestroyed;
         if (callback != null) {
             callback.run();
@@ -113,91 +123,30 @@ final class BannerController {
         if (destroyed || banner != null) {
             return;
         }
-        View decorView = activity.getWindow().getDecorView();
-        if (!(decorView instanceof ViewGroup)) {
+        View root = activity.getWindow().getDecorView();
+        if (!(root instanceof ViewGroup)) {
             return;
         }
-
-        decor = (ViewGroup) decorView;
-        this.decorView = decorView;
-        banner = buildBanner();
+        decorView = root;
+        banner = new FloatingBanner(activity);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 dp(42)
         );
         params.gravity = Gravity.TOP | Gravity.LEFT;
         params.leftMargin = dp(16);
-        params.topMargin = dp(56);
         banner.setLayoutParams(params);
         banner.setVisibility(View.GONE);
-        decor.addView(banner, params);
-        decorView.addOnLayoutChangeListener(layoutListener);
-        attachedDark = isDark();
-        positionBanner();
-    }
-
-    private LinearLayout buildBanner() {
-        LinearLayout row = new LinearLayout(activity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(7), dp(6), dp(7));
-        row.setElevation(dp(4));
-        row.setBackground(makeBackground());
-        row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        row.setContentDescription(MESSAGE);
-
-        icon = new NetworkIcon(activity);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(18), dp(18));
-        iconParams.setMarginEnd(dp(8));
-        row.addView(icon, iconParams);
-
-        message = new TextView(activity);
-        message.setText(MESSAGE);
-        message.setTextSize(14);
-        message.setTextColor(textColor());
-        message.setSingleLine(true);
-        message.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams messageParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        message.setMaxWidth(Math.max(dp(68), activity.getResources().getDisplayMetrics().widthPixels - dp(124)));
-        row.addView(message, messageParams);
-
-        close = new TextView(activity);
-        close.setText("\u00d7");
-        close.setTextSize(22);
-        close.setTextColor(secondaryTextColor());
-        close.setGravity(Gravity.CENTER);
-        close.setContentDescription("\u5173\u95ed");
-        close.setClickable(true);
-        close.setFocusable(true);
-        close.setPadding(dp(8), 0, dp(8), 0);
-        TypedValue ripple = new TypedValue();
-        if (activity.getTheme().resolveAttribute(
-                android.R.attr.selectableItemBackgroundBorderless, ripple, true)) {
-            close.setBackgroundResource(ripple.resourceId);
-        }
-        close.setOnClickListener(view -> dismiss());
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(36), dp(36));
-        closeParams.setMarginStart(dp(4));
-        row.addView(close, closeParams);
-
-        row.setMinimumWidth(dp(160));
-        return row;
+        ((ViewGroup) root).addView(banner, params);
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, orValue, ob) ->
+                updateVisibility());
     }
 
     private void updateVisibility() {
         if (destroyed || banner == null) {
             return;
         }
-        if (!activity.hasWindowFocus()) {
-            banner.setVisibility(View.GONE);
-            return;
-        }
-        if (attachedDark != isDark()) {
-            refreshTheme();
-        }
+        banner.refreshTheme(isDark());
         long currentGeneration = generation.getAsLong();
         if (shownGeneration != currentGeneration) {
             shownGeneration = currentGeneration;
@@ -205,26 +154,17 @@ final class BannerController {
             pending = currentGeneration > 0L;
             dismissed = false;
         }
-
-        if (shownAt > 0L && System.currentTimeMillis() - shownAt >= VISIBLE_MS) {
-            dismiss();
-            return;
-        }
-
-        boolean chatVisible = chatPageVisible.getAsBoolean();
-        boolean canShow = pending
-                && !dismissed
-                && chatVisible
-                && decor.isShown();
-        if (!canShow) {
+        boolean visible = pending && !dismissed && canShow.getAsBoolean()
+                && activity.hasWindowFocus() && decorView.isShown();
+        if (!visible) {
+            pauseTimer();
             banner.setVisibility(View.GONE);
             return;
         }
-
         if (shownAt == 0L) {
             shownAt = System.currentTimeMillis();
             handler.removeCallbacks(hideRunnable);
-            handler.postDelayed(hideRunnable, VISIBLE_MS);
+            handler.postDelayed(hideRunnable, remainingMs);
         }
         positionBanner();
         banner.setVisibility(View.VISIBLE);
@@ -243,112 +183,51 @@ final class BannerController {
         }
     }
 
-    void dismissForPageChange() {
-        dismiss();
-    }
-
-    void showTriggeredBanner() {
-        handler.post(() -> {
-            boolean chatVisible = chatPageVisible.getAsBoolean();
-            if (destroyed || !chatVisible) {
-                android.util.Log.i(
-                        "ChatGptNetworkBanner",
-                        "Debug banner skipped destroyed=" + destroyed
-                                + " chatVisible=" + chatVisible
-                );
-                return;
-            }
-            attach();
-            if (banner == null) {
-                return;
-            }
-            showAndScheduleDismissal();
-            refreshWithMenuBounds();
-        });
-    }
-
-    private void showAndScheduleDismissal() {
-        attachedDark = isDark();
-        refreshTheme();
-        pending = false;
-        dismissed = true;
-        shownAt = System.currentTimeMillis();
+    private void pauseTimer() {
+        if (shownAt == 0L) {
+            return;
+        }
+        remainingMs = Math.max(0L, remainingMs - (System.currentTimeMillis() - shownAt));
+        shownAt = 0L;
         handler.removeCallbacks(hideRunnable);
-        positionBanner();
-        banner.setVisibility(View.VISIBLE);
-        banner.bringToFront();
-        handler.postDelayed(hideRunnable, VISIBLE_MS);
-    }
-
-    private void refreshWithMenuBounds() {
-        if (destroyed || banner == null) {
-            return;
-        }
-        banner.post(this::positionBanner);
-    }
-
-    private void refreshTheme() {
-        attachedDark = isDark();
-        if (banner == null) {
-            return;
-        }
-        banner.setBackground(makeBackground());
-        message.setTextColor(textColor());
-        close.setTextColor(secondaryTextColor());
-        icon.invalidate();
     }
 
     private void positionBanner() {
-        if (banner == null || decor == null) {
+        if (destroyed || banner == null || decorView == null) {
             return;
         }
-        int statusBarTop = 0;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowInsets insets = banner.getRootWindowInsets();
-            if (insets != null) {
-                statusBarTop = insets.getInsets(WindowInsets.Type.statusBars()).top;
-            }
+        int statusBar = 0;
+        WindowInsets insets = banner.getRootWindowInsets();
+        if (insets != null) {
+            statusBar = insets.getInsets(WindowInsets.Type.statusBars()).top;
         }
-        int top = statusBarTop + dp(56);
-        View menuButton = findMenuButton();
-        if (menuButton != null) {
+        int top = statusBar + dp(56);
+        View menu = findMenuButton(decorView);
+        if (menu != null) {
             int[] location = new int[2];
-            menuButton.getLocationInWindow(location);
-            int targetTop = location[1] + menuButton.getHeight() + dp(10);
-            int minTop = statusBarTop + dp(8);
-            if (targetTop >= minTop) {
-                top = targetTop;
-            }
+            menu.getLocationInWindow(location);
+            top = location[1] + menu.getHeight() + dp(10);
         }
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) banner.getLayoutParams();
         params.leftMargin = dp(16);
-        params.topMargin = top;
+        params.topMargin = Math.max(top, statusBar + dp(8));
         banner.setLayoutParams(params);
-
-        int maxWidth = Math.max(dp(160), decor.getWidth() - dp(32));
-        message.setMaxWidth(Math.max(dp(68), maxWidth - dp(92)));
+        int maxWidth = Math.max(dp(160), decorView.getWidth() - dp(32));
+        banner.setMaxMessageWidth(Math.max(dp(68), maxWidth - dp(92)));
     }
 
-    private View findMenuButton() {
-        if (decor == null) {
-            return null;
-        }
-        String expected = menuContentDescription();
-        return findViewWithContentDescription(decor, expected);
-    }
-
-    private View findViewWithContentDescription(View view, String expected) {
+    private View findMenuButton(View view) {
         if (view == banner) {
             return null;
         }
         CharSequence description = view.getContentDescription();
-        if (description != null && expected.contentEquals(description)) {
+        if (description != null && menuDescription().contentEquals(description)) {
             return view;
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                View result = findViewWithContentDescription(group.getChildAt(i), expected);
+                View result = findMenuButton(group.getChildAt(i));
                 if (result != null) {
                     return result;
                 }
@@ -357,23 +236,11 @@ final class BannerController {
         return null;
     }
 
-    private String menuContentDescription() {
+    private String menuDescription() {
         int id = activity.getResources().getIdentifier(
                 "f40", "string", "com.openai.chatgpt"
         );
-        if (id == 0) {
-            return "Navigation menu";
-        }
-        return activity.getString(id);
-    }
-
-    private GradientDrawable makeBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setShape(GradientDrawable.RECTANGLE);
-        drawable.setCornerRadius(dp(12));
-        drawable.setColor(isDark() ? Color.rgb(48, 48, 48) : Color.rgb(249, 249, 249));
-        drawable.setStroke(dp(1), isDark() ? Color.rgb(72, 72, 72) : Color.rgb(225, 225, 225));
-        return drawable;
+        return id == 0 ? "Navigation menu" : activity.getString(id);
     }
 
     private boolean isDark() {
@@ -381,16 +248,93 @@ final class BannerController {
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
     }
 
-    private int textColor() {
-        return isDark() ? Color.rgb(240, 240, 240) : Color.rgb(32, 32, 32);
-    }
-
-    private int secondaryTextColor() {
-        return isDark() ? Color.rgb(184, 184, 184) : Color.rgb(96, 96, 96);
-    }
-
     private int dp(int value) {
         return Math.round(value * activity.getResources().getDisplayMetrics().density);
+    }
+
+    private final class FloatingBanner extends LinearLayout {
+        private final NetworkIcon icon;
+        private final TextView message;
+        private final TextView close;
+        private boolean dark;
+
+        FloatingBanner(Activity context) {
+            super(context);
+            setOrientation(HORIZONTAL);
+            setGravity(Gravity.CENTER_VERTICAL);
+            setPadding(dp(12), dp(7), dp(6), dp(7));
+            setElevation(dp(4));
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+            setContentDescription(MESSAGE);
+
+            dark = isDark();
+            setBackground(background(dark));
+            icon = new NetworkIcon(context);
+            addView(icon, new LayoutParams(dp(18), dp(18)) {{
+                setMarginEnd(dp(8));
+            }});
+
+            message = new TextView(context);
+            message.setText(MESSAGE);
+            message.setTextSize(14);
+            message.setSingleLine(true);
+            message.setEllipsize(TextUtils.TruncateAt.END);
+            addView(message, new LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            ));
+
+            close = new TextView(context);
+            close.setText("\u00d7");
+            close.setTextSize(22);
+            close.setGravity(Gravity.CENTER);
+            close.setContentDescription("\u5173\u95ed");
+            close.setClickable(true);
+            close.setFocusable(true);
+            close.setPadding(dp(8), 0, dp(8), 0);
+            TypedValue ripple = new TypedValue();
+            if (context.getTheme().resolveAttribute(
+                    android.R.attr.selectableItemBackgroundBorderless, ripple, true)) {
+                close.setBackgroundResource(ripple.resourceId);
+            }
+            close.setOnClickListener(view -> dismiss());
+            LayoutParams closeParams = new LayoutParams(dp(36), dp(36));
+            closeParams.setMarginStart(dp(4));
+            addView(close, closeParams);
+            setMinimumWidth(dp(160));
+            refreshTheme(dark);
+        }
+
+        void setMaxMessageWidth(int width) {
+            message.setMaxWidth(width);
+        }
+
+        void refreshTheme(boolean nextDark) {
+            if (dark == nextDark) {
+                return;
+            }
+            dark = nextDark;
+            setBackground(background(dark));
+            message.setTextColor(textColor(dark));
+            close.setTextColor(secondaryTextColor(dark));
+            icon.setDark(dark);
+        }
+    }
+
+    private GradientDrawable background(boolean dark) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setCornerRadius(dp(12));
+        drawable.setColor(dark ? Color.rgb(48, 48, 48) : Color.rgb(249, 249, 249));
+        drawable.setStroke(dp(1), dark ? Color.rgb(72, 72, 72) : Color.rgb(225, 225, 225));
+        return drawable;
+    }
+
+    private int textColor(boolean dark) {
+        return dark ? Color.rgb(240, 240, 240) : Color.rgb(32, 32, 32);
+    }
+
+    private int secondaryTextColor(boolean dark) {
+        return dark ? Color.rgb(184, 184, 184) : Color.rgb(96, 96, 96);
     }
 
     private final class NetworkIcon extends View {
@@ -403,7 +347,12 @@ final class BannerController {
             paint.setStrokeWidth(dp(1.9f));
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
-            paint.setColor(textColor());
+            setDark(isDark());
+        }
+
+        void setDark(boolean dark) {
+            paint.setColor(textColor(dark));
+            invalidate();
         }
 
         @Override
