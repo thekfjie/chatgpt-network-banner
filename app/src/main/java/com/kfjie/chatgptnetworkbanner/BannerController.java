@@ -66,6 +66,7 @@ final class BannerController {
             }
             shownGeneration = currentGeneration;
             shownAt = 0L;
+            remainingMs = VISIBLE_MS;
             pending = true;
             dismissed = false;
             updateVisibility();
@@ -84,6 +85,7 @@ final class BannerController {
             pending = true;
             dismissed = false;
             shownAt = 0L;
+            remainingMs = VISIBLE_MS;
             updateVisibility();
         });
     }
@@ -151,6 +153,7 @@ final class BannerController {
         if (shownGeneration != currentGeneration) {
             shownGeneration = currentGeneration;
             shownAt = 0L;
+            remainingMs = VISIBLE_MS;
             pending = currentGeneration > 0L;
             dismissed = false;
         }

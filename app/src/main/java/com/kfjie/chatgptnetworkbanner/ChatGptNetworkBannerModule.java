@@ -172,7 +172,6 @@ public final class ChatGptNetworkBannerModule extends XposedModule {
                         markCertificateCycle();
                         return unitField.get(null);
                     }
-                    clearCertificateCycle();
                     return chain.proceed();
                 });
     }

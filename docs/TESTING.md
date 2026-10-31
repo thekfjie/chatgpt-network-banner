@@ -28,7 +28,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-local.ps1
 - ADB 安装成功；
 - 系统记录 `versionCode=5`、`versionName=1.1.0`；
 - 当前安装包的 APK SHA-256 为
-  `F6868EF38A25ABDAC879F6410894C491E955855A4281E8A6793714983578E7BC`；
+  `8E1416C486A246AC4248F29147AF73F3512602FD318A28F66F200EDDD39C96C8`；
 - ChatGPT 包存在且可启动。
 
 > 本次重装清除了旧的 LSPosed 启用状态和 Scope。需要在 LSPosed 中重新启用
