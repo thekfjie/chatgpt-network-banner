@@ -35,8 +35,7 @@ final class BannerController {
     private int bannerLeft = -1;
     private int bannerTop = -1;
     private boolean pending;
-    private boolean dismissed;
-    private boolean cycleAccepted;
+    private boolean handledThisCycle;
     private boolean destroyed;
     private Runnable onDestroyed;
 
@@ -52,11 +51,10 @@ final class BannerController {
 
     void showCertificateNoticeIfChat() {
         handler.post(() -> {
-            if (destroyed || pending || cycleAccepted) {
+            if (destroyed || handledThisCycle) {
                 return;
             }
             pending = true;
-            dismissed = false;
             showIfReady();
         });
     }
@@ -67,7 +65,6 @@ final class BannerController {
                 return;
             }
             pending = true;
-            dismissed = false;
             showIfReady();
         });
     }
@@ -118,11 +115,11 @@ final class BannerController {
         if (destroyed || banner == null) {
             return;
         }
-        if (!pending || dismissed || !decorView.isShown()) {
+        if (!pending || !decorView.isShown()) {
             banner.setVisibility(View.GONE);
             return;
         }
-        cycleAccepted = true;
+        handledThisCycle = true;
         banner.refreshTheme(isDark());
         positionBanner();
         banner.setVisibility(View.VISIBLE);
@@ -137,7 +134,6 @@ final class BannerController {
         if (destroyed) {
             return;
         }
-        dismissed = true;
         pending = false;
         handler.removeCallbacks(hideRunnable);
         if (banner != null) {

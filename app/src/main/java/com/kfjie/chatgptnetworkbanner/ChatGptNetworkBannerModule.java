@@ -240,7 +240,6 @@ public final class ChatGptNetworkBannerModule extends XposedModule {
         final TargetSignature signature;
         final Class<?> stateClass;
         final Class<?> certificateFailureClass;
-        final Class<?> failureBaseClass;
         final Field failureField;
         final Method emit;
         final Object completedUnit;
@@ -249,7 +248,6 @@ public final class ChatGptNetworkBannerModule extends XposedModule {
                 TargetSignature signature,
                 Class<?> stateClass,
                 Class<?> certificateFailureClass,
-                Class<?> failureBaseClass,
                 Field failureField,
                 Method emit,
                 Object completedUnit
@@ -257,7 +255,6 @@ public final class ChatGptNetworkBannerModule extends XposedModule {
             this.signature = signature;
             this.stateClass = stateClass;
             this.certificateFailureClass = certificateFailureClass;
-            this.failureBaseClass = failureBaseClass;
             this.failureField = failureField;
             this.emit = emit;
             this.completedUnit = completedUnit;
@@ -306,7 +303,6 @@ public final class ChatGptNetworkBannerModule extends XposedModule {
                     signature,
                     state,
                     certificateFailure,
-                    failureBase,
                     failureField,
                     emit,
                     completedUnit

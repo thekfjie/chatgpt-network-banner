@@ -29,7 +29,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-local.ps1
 本次交付 APK：
 
 - 文件：`dist/ChatGPTNetworkBanner-1.2.0.apk`
-- SHA-256：由 `verify-build.ps1` 输出，避免文档与最终产物漂移。
+- SHA-256：
+  `79812C40CA70D370EE9A5CD038E268F73701EBDFE0F8D3819060B19C7A682AAF`
 
 ## Verify
 
