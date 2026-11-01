@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$VersionName = "1.1.0"
+$VersionName = "1.2.0"
 $SdkCandidates = @(
     $env:ANDROID_SDK_ROOT,
     $env:ANDROID_HOME,

@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Apk = Join-Path $ProjectRoot "dist\ChatGPTNetworkBanner-1.1.0.apk"
+$Apk = Join-Path $ProjectRoot "dist\ChatGPTNetworkBanner-1.2.0.apk"
 if (-not (Test-Path -LiteralPath $Apk)) {
     throw "APK not found: $Apk"
 }
@@ -47,7 +47,7 @@ if (-not $Java) {
 }
 
 $Badging = & $Aapt2 dump badging $Apk
-if ($LASTEXITCODE -ne 0 -or -not ($Badging -match "package: name='com\.kfjie\.chatgptnetworkbanner' versionCode='5' versionName='1\.1\.0'")) {
+if ($LASTEXITCODE -ne 0 -or -not ($Badging -match "package: name='com\.kfjie\.chatgptnetworkbanner' versionCode='6' versionName='1\.2\.0'")) {
     throw "Unexpected package or version."
 }
 $Permissions = & $Aapt2 dump permissions $Apk
@@ -80,7 +80,17 @@ try {
     } finally {
         $Reader.Dispose()
     }
-    foreach ($forbidden in @("chatgpt_banner_debug_trigger", "Settings.Global", "ContentObserver")) {
+    foreach ($forbidden in @(
+        "chatgpt_banner_debug_trigger",
+        "Settings.Global",
+        "ContentObserver",
+        "w52",
+        "m56566g",
+        "findMenuButton",
+        "ViewTreeObserver",
+        "SSLHandshakeException",
+        "CertificateException"
+    )) {
         if ($DexText.Contains($forbidden)) {
             throw "Production DEX contains forbidden marker: $forbidden"
         }

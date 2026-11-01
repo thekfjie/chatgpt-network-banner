@@ -1,11 +1,12 @@
 # Release
 
-## 1.1.0
+## 1.2.0
 
 - 目标 ChatGPT `1.2026.293`。
-- 将独立全屏证书错误目的地替换为 Activity 内轻提示。
+- 在证书错误状态投影到 UI 前 veto，不再进入全屏错误页。
+- 通过当前 `MainActivity` DecorView 显示 Activity 内轻提示。
 - 保留原版网络检测、SSL 校验和聊天业务逻辑。
-- 侧边栏打开立即隐藏，关闭不恢复旧提醒。
+- 不读取、拦截或控制侧边栏状态。
 - 15 秒自动消失、`×` 手动关闭、同一异常去重。
 - 正式 APK 不包含调试触发路径。
 
@@ -20,16 +21,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-local.ps1
 
 产物：
 
-- `dist/ChatGPTNetworkBanner-1.1.0.apk`
-- `dist/ChatGPTNetworkBanner-1.1.0-debug.apk`
+- `dist/ChatGPTNetworkBanner-1.2.0.apk`
+- `dist/ChatGPTNetworkBanner-1.2.0-debug.apk`
 
 发布时只保留正式 APK；debug 包用于 UI 自测，不进入 Release。
 
 本次交付 APK：
 
-- 文件：`dist/ChatGPTNetworkBanner-1.1.0.apk`
-- SHA-256：
-  `8E1416C486A246AC4248F29147AF73F3512602FD318A28F66F200EDDD39C96C8`
+- 文件：`dist/ChatGPTNetworkBanner-1.2.0.apk`
+- SHA-256：由 `verify-build.ps1` 输出，避免文档与最终产物漂移。
 
 ## Verify
 

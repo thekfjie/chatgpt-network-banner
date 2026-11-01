@@ -19,62 +19,46 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import java.util.function.BooleanSupplier;
-import java.util.function.LongSupplier;
-
 final class BannerController {
     private static final long VISIBLE_MS = 15_000L;
     private static final String MESSAGE =
             "\u7f51\u7edc\u8fde\u63a5\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc";
+    private static final long ATTACH_RETRY_MS = 300L;
 
     private final Activity activity;
-    private final LongSupplier generation;
-    private final BooleanSupplier canShow;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideRunnable = this::dismiss;
+    private final Runnable attachRunnable = this::attach;
 
     private FloatingBanner banner;
     private View decorView;
-    private long shownGeneration = -1L;
-    private long shownAt;
-    private long remainingMs = VISIBLE_MS;
+    private int bannerLeft = -1;
+    private int bannerTop = -1;
     private boolean pending;
     private boolean dismissed;
+    private boolean cycleAccepted;
     private boolean destroyed;
     private Runnable onDestroyed;
 
-    BannerController(
-            Activity activity,
-            LongSupplier generation,
-            BooleanSupplier canShow
-    ) {
+    BannerController(Activity activity) {
         this.activity = activity;
-        this.generation = generation;
-        this.canShow = canShow;
         decorView = activity.getWindow().getDecorView();
-        decorView.post(this::attach);
+        decorView.post(attachRunnable);
     }
 
     void setOnDestroyed(Runnable callback) {
         onDestroyed = callback;
     }
 
-    void showForCertificateCycle(long currentGeneration) {
+    void showCertificateNoticeIfChat() {
         handler.post(() -> {
-            if (destroyed || currentGeneration <= 0L || shownGeneration == currentGeneration) {
+            if (destroyed || pending || cycleAccepted) {
                 return;
             }
-            shownGeneration = currentGeneration;
-            shownAt = 0L;
-            remainingMs = VISIBLE_MS;
             pending = true;
             dismissed = false;
-            updateVisibility();
+            showIfReady();
         });
-    }
-
-    void dismissForPageChange() {
-        handler.post(this::dismiss);
     }
 
     void showDebugPreview() {
@@ -84,23 +68,7 @@ final class BannerController {
             }
             pending = true;
             dismissed = false;
-            shownAt = 0L;
-            remainingMs = VISIBLE_MS;
-            updateVisibility();
-        });
-    }
-
-    void clearStaleBanner() {
-        handler.post(() -> {
-            if (destroyed) {
-                return;
-            }
-            pending = false;
-            dismissed = true;
-            handler.removeCallbacks(hideRunnable);
-            if (banner != null) {
-                banner.setVisibility(View.GONE);
-            }
+            showIfReady();
         });
     }
 
@@ -127,6 +95,7 @@ final class BannerController {
         }
         View root = activity.getWindow().getDecorView();
         if (!(root instanceof ViewGroup)) {
+            handler.postDelayed(attachRunnable, ATTACH_RETRY_MS);
             return;
         }
         decorView = root;
@@ -140,38 +109,28 @@ final class BannerController {
         banner.setLayoutParams(params);
         banner.setVisibility(View.GONE);
         ((ViewGroup) root).addView(banner, params);
-        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, orValue, ob) ->
-                updateVisibility());
+        if (pending) {
+            showIfReady();
+        }
     }
 
-    private void updateVisibility() {
+    private void showIfReady() {
         if (destroyed || banner == null) {
             return;
         }
-        banner.refreshTheme(isDark());
-        long currentGeneration = generation.getAsLong();
-        if (shownGeneration != currentGeneration) {
-            shownGeneration = currentGeneration;
-            shownAt = 0L;
-            remainingMs = VISIBLE_MS;
-            pending = currentGeneration > 0L;
-            dismissed = false;
-        }
-        boolean visible = pending && !dismissed && canShow.getAsBoolean()
-                && activity.hasWindowFocus() && decorView.isShown();
-        if (!visible) {
-            pauseTimer();
+        if (!pending || dismissed || !decorView.isShown()) {
             banner.setVisibility(View.GONE);
             return;
         }
-        if (shownAt == 0L) {
-            shownAt = System.currentTimeMillis();
-            handler.removeCallbacks(hideRunnable);
-            handler.postDelayed(hideRunnable, remainingMs);
-        }
+        cycleAccepted = true;
+        banner.refreshTheme(isDark());
         positionBanner();
         banner.setVisibility(View.VISIBLE);
         banner.bringToFront();
+        scheduleDismissal();
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i("ChatGptNetworkBanner", "banner visible");
+        }
     }
 
     private void dismiss() {
@@ -186,13 +145,9 @@ final class BannerController {
         }
     }
 
-    private void pauseTimer() {
-        if (shownAt == 0L) {
-            return;
-        }
-        remainingMs = Math.max(0L, remainingMs - (System.currentTimeMillis() - shownAt));
-        shownAt = 0L;
+    private void scheduleDismissal() {
         handler.removeCallbacks(hideRunnable);
+        handler.postDelayed(hideRunnable, VISIBLE_MS);
     }
 
     private void positionBanner() {
@@ -204,46 +159,19 @@ final class BannerController {
         if (insets != null) {
             statusBar = insets.getInsets(WindowInsets.Type.statusBars()).top;
         }
-        int top = statusBar + dp(56);
-        View menu = findMenuButton(decorView);
-        if (menu != null) {
-            int[] location = new int[2];
-            menu.getLocationInWindow(location);
-            top = location[1] + menu.getHeight() + dp(10);
+        int nextLeft = dp(16);
+        int nextTop = statusBar + dp(56) + dp(10);
+        if (nextLeft != bannerLeft || nextTop != bannerTop) {
+            bannerLeft = nextLeft;
+            bannerTop = nextTop;
+            FrameLayout.LayoutParams params =
+                    (FrameLayout.LayoutParams) banner.getLayoutParams();
+            params.leftMargin = nextLeft;
+            params.topMargin = nextTop;
+            banner.setLayoutParams(params);
         }
-        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) banner.getLayoutParams();
-        params.leftMargin = dp(16);
-        params.topMargin = Math.max(top, statusBar + dp(8));
-        banner.setLayoutParams(params);
         int maxWidth = Math.max(dp(160), decorView.getWidth() - dp(32));
         banner.setMaxMessageWidth(Math.max(dp(68), maxWidth - dp(92)));
-    }
-
-    private View findMenuButton(View view) {
-        if (view == banner) {
-            return null;
-        }
-        CharSequence description = view.getContentDescription();
-        if (description != null && menuDescription().contentEquals(description)) {
-            return view;
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                View result = findMenuButton(group.getChildAt(i));
-                if (result != null) {
-                    return result;
-                }
-            }
-        }
-        return null;
-    }
-
-    private String menuDescription() {
-        int id = activity.getResources().getIdentifier(
-                "f40", "string", "com.openai.chatgpt"
-        );
-        return id == 0 ? "Navigation menu" : activity.getString(id);
     }
 
     private boolean isDark() {
@@ -260,6 +188,7 @@ final class BannerController {
         private final TextView message;
         private final TextView close;
         private boolean dark;
+        private int maxMessageWidth = -1;
 
         FloatingBanner(Activity context) {
             super(context);
@@ -309,6 +238,10 @@ final class BannerController {
         }
 
         void setMaxMessageWidth(int width) {
+            if (width == maxMessageWidth) {
+                return;
+            }
+            maxMessageWidth = width;
             message.setMaxWidth(width);
         }
 
